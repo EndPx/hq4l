@@ -191,7 +191,6 @@ persistent actor {
     #err("User not found");
   };
 
-
   // ======================================
   // SHOP & INVENTORY
   // ======================================
@@ -253,22 +252,41 @@ persistent actor {
     switch (inventories.get(caller)) {
       case null { return #err(#UserNotFound) };
       case (?items) {
-        var updated = Buffer.Buffer<Types.InventoryItem>(items.size());
-        var found = false;
-
+        var targetItem : ?Types.InventoryItem = null;
+        // 1. Temukan item yang dituju untuk mengetahui statusnya saat ini
         for (item in items.vals()) {
           if (item.id == inventory_id) {
-            updated.add({ id = item.id; skin_id = item.skin_id; is_active = true; acquired_at = item.acquired_at });
-            found := true;
-          } else {
-            updated.add({ id = item.id; skin_id = item.skin_id; is_active = false; acquired_at = item.acquired_at });
+            targetItem := ?item;
           };
         };
 
-        if (not found) { return #err(#SkinNotFound) };
+        switch (targetItem) {
+          case null { return #err(#SkinNotFound) };
+          case (?t) {
+            // 2. Tentukan status aktif berikutnya (kebalikan dari status saat ini)
+            let shouldBeActive = not t.is_active;
 
-        inventories.put(caller, Buffer.toArray(updated));
-        #ok(());
+            let updated = Buffer.Buffer<Types.InventoryItem>(items.size());
+
+            for (item in items.vals()) {
+              if (item.id == inventory_id) {
+                // Untuk item yang dipilih, atur statusnya menjadi `shouldBeActive`
+                updated.add({ item with is_active = shouldBeActive });
+              } else {
+                // Untuk item lain:
+                if (shouldBeActive) {
+                  // Jika item target sedang diaktifkan, maka semua item lain harus dinonaktifkan.
+                  updated.add({ item with is_active = false });
+                } else {
+                  // Jika item target sedang dinonaktifkan, status item lain tidak berubah (karena sudah non-aktif).
+                  updated.add(item);
+                };
+              };
+            };
+            inventories.put(caller, Buffer.toArray(updated));
+            #ok(());
+          };
+        };
       };
     };
   };
@@ -277,64 +295,66 @@ persistent actor {
   // PROFILE
   // ======================================
   private func getProfileUserInternal(caller : Principal) : Types.UserProfile {
-  let ?user = users.get(caller) else {
-    return {
-      username = "";
-      coin = 0;
-      stamina = 0;
-      roles = [];
-      skins = [];
-      quests = [];
-    };
-  };
-
-  var role_profiles : [Types.RoleProfile] = [];
-  switch (user_roles.get(caller)) {
-    case (?roles) {
-      let buf = Buffer.Buffer<Types.RoleProfile>(roles.size());
-      for (cr in roles.vals()) {
-        switch (available_roles.get(cr.role_id)) {
-          case (?mr) {
-            buf.add({
-              id = cr.id;
-              name = mr.name;
-              badge = mr.badge;
-              level = cr.level;
-              exp = cr.exp;
-              is_active = cr.is_active;
-            });
-          };
-          case null {};
-        };
+    let ?user = users.get(caller) else {
+      return {
+        username = "";
+        coin = 0;
+        stamina = 0;
+        roles = [];
+        skins = [];
+        quests = [];
       };
-      role_profiles := Buffer.toArray(buf);
     };
-    case null {};
-  };
 
-  let skins = switch (inventories.get(caller)) {
-    case null { [] };
-    case (?inv) { inv };
-  };
+    var role_profiles : [Types.RoleProfile] = [];
+    switch (user_roles.get(caller)) {
+      case (?roles) {
+        let buf = Buffer.Buffer<Types.RoleProfile>(roles.size());
+        for (cr in roles.vals()) {
+          switch (available_roles.get(cr.role_id)) {
+            case (?mr) {
+              buf.add({
+                id = cr.id;
+                name = mr.name;
+                badge = mr.badge;
+                level = cr.level;
+                exp = cr.exp;
+                is_active = cr.is_active;
+              });
+            };
+            case null {};
+          };
+        };
+        role_profiles := Buffer.toArray(buf);
+      };
+      case null {};
+    };
 
-  {
-    username = user.username;
-    coin = user.coin;
-    stamina = user.stamina;
-    roles = role_profiles;
-    skins = skins;
-    quests = []; // placeholder
-  };
-};
+    // MODIFIKASI: Filter inventaris untuk hanya mendapatkan skin yang aktif.
+    let active_skins = Array.filter<Types.InventoryItem>(
+      switch (inventories.get(caller)) {
+        case null { [] };
+        case (?inv) { inv };
+      },
+      func(item) { item.is_active },
+    );
 
+    {
+      username = user.username;
+      coin = user.coin;
+      stamina = user.stamina;
+      roles = role_profiles;
+      skins = active_skins; // Gunakan hasil filter
+      quests = []; // placeholder
+    };
+  };
 
   public shared query (msg) func getProfileUser() : async ?Types.UserProfile {
-  if (Option.isNull(users.get(msg.caller))) {
-    return null;
+    if (Option.isNull(users.get(msg.caller))) {
+      return null;
+    };
+    ?getProfileUserInternal(msg.caller);
   };
-  ?getProfileUserInternal(msg.caller);
-};
-
 
   // ======================================
   // USER HELPERS
@@ -343,8 +363,21 @@ persistent actor {
     not Option.isNull(users.get(msg.caller));
   };
 
-  public shared (msg) func chooseRole(role_id_to_choose : Types.RoleId) : async Result.Result<(), Types.UserError> {
+  private func roleSelectionToId(selection : Types.RoleSelection) : Types.RoleId {
+    switch (selection) {
+      case (#Codes) { 0 };
+      case (#Sports) { 1 };
+      case (#Arts) { 2 };
+      case (#Traveler) { 3 };
+      case (#Literature) { 4 };
+    };
+  };
+
+  public shared (msg) func chooseRole(role_to_toggle : Types.RoleSelection) : async Result.Result<(), Types.UserError> {
     let caller = msg.caller;
+
+    // 1. Konversi input dropdown (variant) menjadi angka (RoleId)
+    let role_id_to_toggle = roleSelectionToId(role_to_toggle);
 
     if (Option.isNull(users.get(caller))) { return #err(#UserNotFound) };
 
@@ -352,13 +385,30 @@ persistent actor {
       case null { return #err(#RoleNotFound) };
       case (?roles) {
         let buf = Buffer.Buffer<Types.CurrentRole>(roles.size());
+        var roleFound = false;
+
+        // 2. Sisa logika fungsi sama persis seperti sebelumnya
         for (r in roles.vals()) {
-          if (r.role_id == role_id_to_choose) {
-            buf.add({ id = r.id; role_id = r.role_id; var level = r.level; var exp = r.exp; var is_active = true });
+          if (r.role_id == role_id_to_toggle) {
+            roleFound := true;
+            buf.add({
+              id = r.id;
+              role_id = r.role_id;
+              var level = r.level;
+              var exp = r.exp;
+              var is_active = not r.is_active;
+            });
           } else {
-            buf.add({ id = r.id; role_id = r.role_id; var level = r.level; var exp = r.exp; var is_active = false });
+            buf.add(r);
           };
         };
+
+        if (not roleFound) {
+          // Error ini secara teknis tidak akan pernah tercapai karena pilihan dropdown pasti valid,
+          // tapi tetap baik untuk ada.
+          return #err(#RoleNotFound);
+        };
+
         user_roles.put(caller, Buffer.toArray(buf));
         #ok(());
       };
@@ -372,7 +422,9 @@ persistent actor {
     Iter.toArray(
       Iter.map<(Principal, Types.User), (Principal, Types.DebugUser)>(
         users.entries(),
-        func((p, u)) { (p, { owner_principal = u.owner_principal; username = u.username; coin = u.coin; stamina = u.stamina; last_action_timestamp = u.last_action_timestamp }) },
+        func((p, u)) {
+          (p, { owner_principal = u.owner_principal; username = u.username; coin = u.coin; stamina = u.stamina; last_action_timestamp = u.last_action_timestamp });
+        },
       )
     );
   };
@@ -385,7 +437,7 @@ persistent actor {
     Iter.toArray(inventories.entries());
   };
 
-   public shared query (msg) func whoami() : async Text {
-    Principal.toText(msg.caller)
+  public shared query (msg) func whoami() : async Text {
+    Principal.toText(msg.caller);
   };
 };

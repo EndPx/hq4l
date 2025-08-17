@@ -16,6 +16,14 @@ module {
     badge : Text;
   };
 
+  public type RoleSelection = {
+    #Codes;
+    #Sports;
+    #Arts;
+    #Traveler;
+    #Literature;
+  };
+
   public type CurrentRole = {
     id : CurrentRoleId;
     role_id : RoleId;
