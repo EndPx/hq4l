@@ -1,16 +1,29 @@
 {
+  "version": 1,
   "canisters": {
     "ic_game_backend": {
       "main": "src/ic_game_backend/main.mo",
-      "type": "motoko"
+      "type": "motoko",
+      "source": [
+        "src/ic_game_backend",
+        ".mops/decs/mo/"
+      ]
     }
   },
-  "defaults": {
-    "build": {
-      "args": "",
-      "packtool": ""
+  "networks": {
+    "local": {
+      "bind": "127.0.0.1:4943",
+      "type": "ephemeral"
+    },
+    "ic": {
+      "providers": ["https://ic0.app"],
+      "type": "persistent"
     }
   },
   "output_env_file": ".env",
-  "version": 1
+  "defaults": {
+    "replica": {
+      "subnet_type": "application"
+    }
+  }
 }
