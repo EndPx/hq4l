@@ -6,6 +6,7 @@ module {
   public type SkinId = Nat;
   public type InventoryId = Nat;
   public type QuestId = Nat;
+  public type UserId = Nat;
 
   // =============================
   // ROLES
@@ -27,37 +28,10 @@ module {
   public type CurrentRole = {
     id : CurrentRoleId;
     role_id : RoleId;
+    user_id : UserId;
     var level : Nat;
     var exp : Nat;
     var is_active : Bool;
-  };
-
-  public type RoleProfile = {
-    id : CurrentRoleId;
-    name : Text;
-    badge : Text;
-    level : Nat;
-    exp : Nat;
-    is_active : Bool;
-  };
-
-  // =============================
-  // USER
-  // =============================
-  public type User = {
-    owner_principal : Principal;
-    username : Text;
-    var coin : Nat;
-    var stamina : Nat;
-    var last_action_timestamp : Time.Time;
-  };
-
-  public type DebugUser = {
-    owner_principal : Principal;
-    username : Text;
-    coin : Nat;
-    stamina : Nat;
-    last_action_timestamp : Time.Time;
   };
 
   // =============================
@@ -93,15 +67,17 @@ module {
   };
 
   // =============================
-  // PROFILE
+  // USER (gabungan User + UserProfile)
   // =============================
-  public type UserProfile = {
+  public type User = {
+    id : UserId;
+    owner_principal : Principal;
     username : Text;
-    coin : Nat;
-    stamina : Nat;
-    roles : [RoleProfile];
-    skins : [InventoryItem];
-    quests : [Quest];
+    var coin : Nat;
+    var stamina : Nat;
+    var last_action_timestamp : Time.Time;
+    var skins : [InventoryItem];
+    var quests : [Quest];
   };
 
   // =============================
