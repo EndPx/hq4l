@@ -41,15 +41,14 @@ module {
     id : SkinId;
     name : Text;
     description : Text;
-    rarity : Text;
     image_url : Text;
-    is_limited : Bool;
     price : Nat;
   };
 
   public type InventoryItem = {
     id : InventoryId;
     skin_id : SkinId;
+    user_id : UserId;
     is_active : Bool;
     acquired_at : Time.Time;
   };
@@ -57,13 +56,23 @@ module {
   // =============================
   // QUEST
   // =============================
+  public type QuestStatus = {
+    #OnProgress;
+    #Completed;
+    #Failed;
+  };
+
   public type Quest = {
-    id : QuestId;
+    id : Nat;
+    user_id : UserId;
     title : Text;
-    exp_reward : Nat;
-    coin_reward : Nat;
+    description : Text;
     stamina_cost : Nat;
-    is_active : Bool;
+    coin_reward : Nat;
+    exp_reward : Nat; 
+    deadline : Time.Time; // batas waktu quest
+    var status : QuestStatus;
+    accepted_at : Time.Time;
   };
 
   // =============================
@@ -83,15 +92,37 @@ module {
   // =============================
   // ERRORS
   // =============================
+  public type GlobalLeaderboardEntry = {
+    user_id : UserId;
+    username : Text;
+    coin : Nat;
+  };
+
+  public type LeaderboardEntry = {
+    user_id : UserId;
+    username : Text;
+    level : Nat;
+    exp : Nat;
+  };
+
+  // =============================
+  // ERRORS
+  // =============================
   public type RegistrationError = {
     #UsernameTaken;
     #AlreadyRegistered;
   };
 
   public type UserError = {
-    #UserNotFound;
-    #RoleNotFound;
+    #UserNotFound;        // user tidak ditemukan (belum register)
+    #RoleNotFound;        // role yang dipilih tidak dimiliki user
+    #NoActiveRole;        // user tidak punya role aktif
+    #NotEnoughStamina;    // stamina tidak cukup untuk aksi
+    #ActiveQuestExists;   // tidak bisa ganti role saat masih ada quest aktif
+    #QuestNotFound;       // quest yang dicari tidak ada
+    #QuestNotInProgress;  // quest ditemukan tapi tidak dalam status OnProgress
   };
+
 
   public type ShopError = {
     #UserNotFound;

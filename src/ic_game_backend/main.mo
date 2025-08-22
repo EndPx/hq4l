@@ -9,8 +9,9 @@ import Iter "mo:base/Iter";
 import Buffer "mo:base/Buffer";
 import Hash "mo:base/Hash";
 import Array "mo:base/Array";
-
+import Order "mo:base/Order";
 import Types "./types";
+import Int "mo:base/Int";
 
 persistent actor {
 
@@ -42,21 +43,21 @@ persistent actor {
   // ======================================
 
   // Immutable view untuk User
-  type UserView = {
+  // Immutable view untuk User
+  public type UserView = {
     id : Types.UserId;
     owner_principal : Principal;
     username : Text;
     coin : Nat;
     stamina : Nat;
     last_action_timestamp : Time.Time;
-    skins : [Types.InventoryItem];
-    quests : [Types.Quest];
+    skins : [InventoryItemView]; // ganti ke view yang immutable
+    quests : [QuestView]; // ganti ke view juga
   };
 
-  // View untuk current role (lebih ringkas)
-  type CurrentRoleView = {
+  public type CurrentRoleView = {
     id : Types.CurrentRoleId;
-    role_name : Text;   // dari available_roles
+    role_name : Text;
     level : Nat;
     exp : Nat;
     is_active : Bool;
@@ -66,9 +67,46 @@ persistent actor {
   type UserProfileView = {
     user : UserView;
     roles : [CurrentRoleView];
+    active_inventory : ?Types.InventoryItem;
+  };
+
+  type ActiveInventoryView = {
+    id : Types.InventoryId;
+    skin_id : Types.SkinId;
+    user_id : Types.UserId;
+    is_active : Bool;
+    acquired_at : Time.Time;
+    skin_name : Text;
+    skin_description : Text;
+    skin_image_url : Text;
+  };
+
+  type ShopView = {
+    available : [Types.Skin];
+    owned : [Types.Skin];
+  };
+
+  public type QuestView = {
+    id : Nat;
+    user_id : Types.UserId;
+    title : Text;
+    description : Text;
+    stamina_cost : Nat;
+    coin_reward : Nat;
+    exp_reward : Nat;
+    deadline : Time.Time;
+    status : Types.QuestStatus;
+    accepted_at : Time.Time;
   };
 
 
+  public type InventoryItemView = {
+    id : Types.InventoryId;
+    skin_id : Types.SkinId;
+    user_id : Types.UserId;
+    is_active : Bool;
+    acquired_at : Time.Time;
+  };
 
   private func toUserView(u : Types.User) : UserView {
     {
@@ -79,8 +117,8 @@ persistent actor {
       stamina = u.stamina;
       last_action_timestamp = u.last_action_timestamp;
       skins = u.skins;
-      quests = u.quests;
-    }
+      quests = Array.map<Types.Quest, QuestView>(u.quests, toQuestView);
+    };
   };
 
   private func toCurrentRoleView(r : Types.CurrentRole) : CurrentRoleView {
@@ -94,33 +132,49 @@ persistent actor {
       level = r.level;
       exp = r.exp;
       is_active = r.is_active;
-    }
+    };
+  };
+
+  private func toQuestView(q : Types.Quest) : QuestView {
+    {
+      id = q.id;
+      user_id = q.user_id;
+      title = q.title;
+      description = q.description;
+      stamina_cost = q.stamina_cost;
+      coin_reward = q.coin_reward;
+      exp_reward = q.exp_reward;
+      deadline = q.deadline;
+      status = q.status;
+      accepted_at = q.accepted_at;
+    };
   };
 
 
   // ======================================
   // STATE: User & Roles
   // ======================================
-  private stable var users_stable : [(Principal, Types.User)] = [];
+  private var users_stable : [(Principal, Types.User)] = [];
   private transient var users = HashMap.HashMap<Principal, Types.User>(0, Principal.equal, Principal.hash);
 
-  private stable var current_roles_stable : [(Types.CurrentRoleId, Types.CurrentRole)] = [];
+  private var current_roles_stable : [(Types.CurrentRoleId, Types.CurrentRole)] = [];
   private transient var current_roles = HashMap.HashMap<Types.CurrentRoleId, Types.CurrentRole>(0, Nat.equal, Hash.hash);
 
-  private stable var next_user_id : Types.UserId = 0;
-  private stable var next_current_role_id : Types.CurrentRoleId = 0;
-  
+  private var next_user_id : Types.UserId = 0;
+  private var next_current_role_id : Types.CurrentRoleId = 0;
+  private var next_quest_id : Nat = 0;
+
   // ======================================
   // STATE: Shop & Inventory
   // ======================================
-  private stable var skins_stable : [(Types.SkinId, Types.Skin)] = [];
+  private var skins_stable : [(Types.SkinId, Types.Skin)] = [];
   private transient var skins = HashMap.HashMap<Types.SkinId, Types.Skin>(0, Nat.equal, Hash.hash);
 
-  private stable var inventories_stable : [(Principal, [Types.InventoryItem])] = [];
+  private var inventories_stable : [(Principal, [Types.InventoryItem])] = [];
   private transient var inventories = HashMap.HashMap<Principal, [Types.InventoryItem]>(0, Principal.equal, Principal.hash);
 
-  private stable var next_skin_id : Types.SkinId = 0;
-  private stable var next_inventory_id : Types.InventoryId = 0;
+  private var next_skin_id : Types.SkinId = 0;
+  private var next_inventory_id : Types.InventoryId = 0;
 
   // ======================================
   // SYSTEM HOOKS
@@ -145,9 +199,50 @@ persistent actor {
   };
 
   // ======================================
+  // STAMINA
+  // ======================================
+
+  let INITIAL_STAMINA : Nat = 30;
+  let REGEN_INTERVAL : Nat = 5 * 60 * 1_000_000_000;
+  let REGEN_AMOUNT : Nat = 1;
+
+  private func regenerateStamina(u : Types.User) {
+    let now = Time.now();
+    let elapsedInt = now - u.last_action_timestamp;
+    if (elapsedInt <= 0) return;
+
+    let elapsed : Nat = Int.abs(elapsedInt);
+
+    if (elapsed >= REGEN_INTERVAL) {
+      let periods = elapsed / REGEN_INTERVAL;
+      let regen = periods * REGEN_AMOUNT;
+
+      if (u.stamina < INITIAL_STAMINA) {
+        u.stamina := Nat.min(INITIAL_STAMINA, u.stamina + regen);
+      };
+
+      // update timestamp supaya akurat
+      let remainder = elapsed % REGEN_INTERVAL;
+      u.last_action_timestamp := now - remainder;
+    };
+  };
+
+  public shared (msg) func getStamina() : async Result.Result<Nat, Types.UserError> {
+    switch (users.get(msg.caller)) {
+      case null {
+        return #err(#UserNotFound);
+      };
+      case (?u) {
+        // regen dulu biar selalu up-to-date
+        regenerateStamina(u);
+        return #ok(u.stamina);
+      };
+    };
+  };
+
+  // ======================================
   // USER REGISTER
   // ======================================
-  let INITIAL_STAMINA : Nat = 30;
 
   public shared (msg) func registerUser(username : Text) : async Result.Result<(UserView, [CurrentRoleView]), Types.RegistrationError> {
     let caller_principal = msg.caller;
@@ -172,6 +267,7 @@ persistent actor {
       var skins = [];
       var quests = [];
     };
+
     next_user_id += 1;
     users.put(caller_principal, newUser);
 
@@ -194,16 +290,13 @@ persistent actor {
     #ok((toUserView(newUser), Array.map<Types.CurrentRole, CurrentRoleView>(rolesArr, toCurrentRoleView)));
   };
 
-
   // ======================================
   // ADMIN: Tambah Skin
   // ======================================
   public shared (msg) func addSkin(
     name : Text,
     description : Text,
-    rarity : Text,
     image_url : Text,
-    is_limited : Bool,
     price : Nat,
   ) : async Result.Result<Types.SkinId, Types.ShopError> {
     if (msg.caller != ADMIN) {
@@ -214,9 +307,7 @@ persistent actor {
       id = next_skin_id;
       name = name;
       description = description;
-      rarity = rarity;
       image_url = image_url;
-      is_limited = is_limited;
       price = price;
     };
 
@@ -228,21 +319,6 @@ persistent actor {
   // ======================================
   // ADMIN: Grant Coin
   // ======================================
-  public shared (msg) func grantCoin(target : Principal, amount : Nat) : async Result.Result<(), Text> {
-    if (msg.caller != ADMIN) {
-      return #err("Unauthorized: Only admin can grant coin");
-    };
-
-    switch (users.get(target)) {
-      case null { return #err("User not found") };
-      case (?u) {
-        u.coin += amount;
-        users.put(target, u);
-        #ok(());
-      };
-    };
-  };
-
   public shared (msg) func grantCoinByUsername(username : Text, amount : Nat) : async Result.Result<(), Text> {
     if (msg.caller != ADMIN) {
       return #err("Unauthorized: Only admin can grant coin");
@@ -260,10 +336,212 @@ persistent actor {
   };
 
   // ======================================
+  // QUEST
+  // ======================================
+
+  public shared (msg) func acceptQuest(
+    title : Text,
+    description : Text,
+    stamina_cost : Nat,
+    coin_reward : Nat,
+    exp_reward : Nat
+  ) : async Result.Result<(), Types.UserError> {
+    let ?u = users.get(msg.caller) else return #err(#UserNotFound);
+
+    // ✅ Cek role dulu
+    switch (current_roles.get(u.id)) {
+      case null {
+        return #err(#NoActiveRole);   // UserError baru misalnya
+      };
+      case (?role) {
+        // ✅ Cek stamina
+        if (u.stamina < stamina_cost) {
+          return #err(#NotEnoughStamina);
+        };
+
+        u.stamina -= stamina_cost;
+
+        let now = Time.now();
+        let four_hours : Int = 4 * 60 * 60 * 1_000_000_000;
+        let deadline = now + four_hours;
+
+        let newQuest : Types.Quest = {
+          id = next_quest_id;
+          user_id = u.id;
+          title = title;
+          description = description;
+          stamina_cost = stamina_cost;
+          coin_reward = coin_reward;
+          exp_reward = exp_reward;
+          deadline = deadline;
+          var status = #OnProgress;
+          accepted_at = now;
+        };
+
+        next_quest_id += 1;
+        u.quests := Array.append(u.quests, [newQuest]);
+
+        #ok(());
+      };
+    };
+  };
+
+
+
+  public shared query (msg) func detailQuest(questId : Nat) : async ?QuestView {
+    let ?u = users.get(msg.caller) else return null;
+
+    switch (Array.find<Types.Quest>(u.quests, func(q) { q.id == questId })) {
+      case null {
+        null;
+      };
+      case (?q) {
+        if (q.user_id == u.id) {
+          ?toQuestView(q);
+        } else {
+          null;
+        };
+      };
+    };
+  };
+
+  public shared query (msg) func historyQuest() : async {
+    onProgress : [QuestView];
+    completed : [QuestView];
+    failed : [QuestView];
+  } {
+    let ?u = users.get(msg.caller) else return {
+      onProgress = [];
+      completed = [];
+      failed = [];
+    };
+
+    let onProgress = Array.map<Types.Quest, QuestView>(
+      Array.filter<Types.Quest>(
+        u.quests,
+        func(q) { q.status == #OnProgress and q.user_id == u.id },
+      ),
+      toQuestView,
+    );
+
+    let completed = Array.map<Types.Quest, QuestView>(
+      Array.filter<Types.Quest>(
+        u.quests,
+        func(q) { q.status == #Completed and q.user_id == u.id },
+      ),
+      toQuestView,
+    );
+
+    let failed = Array.map<Types.Quest, QuestView>(
+      Array.filter<Types.Quest>(
+        u.quests,
+        func(q) { q.status == #Failed and q.user_id == u.id },
+      ),
+      toQuestView,
+    );
+
+    { onProgress; completed; failed };
+  };
+
+  // Tandai semua quest expired jadi Failed
+  public shared (msg) func failExpiredQuests() : async () {
+    let ?u = users.get(msg.caller) else return ();
+
+    let now = Time.now();
+
+    for (q in u.quests.vals()) {
+      if (q.user_id == u.id and q.status == #OnProgress and now > q.deadline) {
+        q.status := #Failed; // ✅ hanya quest caller yang diganti
+      };
+    };
+  };
+
+  // Selesaikan quest tertentu
+  public shared (msg) func completeQuest(questId : Nat) : async Result.Result<(), Text> {
+    let ?u = users.get(msg.caller) else return #err("User not found");
+
+    switch (Array.find<Types.Quest>(u.quests, func(q) { q.id == questId })) {
+      case null {
+        return #err("Quest not found");
+      };
+      case (?quest) {
+        // ✅ pastikan quest ini milik caller
+        if (quest.user_id != u.id) {
+          return #err("Forbidden: quest does not belong to you");
+        };
+        if (quest.status != #OnProgress) {
+          return #err("Quest is not in progress");
+        };
+
+        // Tandai selesai
+        quest.status := #Completed;
+
+        // === 🎁 Beri reward ===
+        u.coin += quest.coin_reward;
+
+        // Cari role aktif user
+        // Asumsi ada 1 role aktif per user (atau bisa multi-role kalau kamu pakai current_roles)
+        switch (current_roles.get(u.id)) {
+          case null { /* user belum punya role, lewati exp */ };
+          case (?role) {
+            // Tambah exp (misalnya exp = stamina_cost * 10)
+            role.exp += quest.exp_reward;
+
+            // Cek level up
+            let newLevel = calcLevel(role.exp);
+            if (newLevel > role.level) {
+              role.level := newLevel; // Naik level
+            };
+          };
+        };
+
+        #ok(());
+      };
+    };
+  };
+
+  // ======================================
   // SHOP & INVENTORY
   // ======================================
-  public shared query func getShop() : async [Types.Skin] {
-    Iter.toArray(skins.vals());
+  public shared query (msg) func getShop() : async ShopView {
+    // Ambil semua skin
+    let allSkins = Iter.toArray(skins.vals());
+
+    // Ambil inventory user
+    let inv = switch (inventories.get(msg.caller)) {
+      case null { [] };
+      case (?items) { items };
+    };
+
+    // Ambil daftar skin_id yang dimiliki user
+    let ownedSkinIds = Array.map<Types.InventoryItem, Types.SkinId>(inv, func(item) { item.skin_id });
+
+    // Available = skin yang id-nya TIDAK ada di ownedSkinIds
+    let available = Array.filter<Types.Skin>(
+      allSkins,
+      func(s) {
+        switch (Array.find<Nat>(ownedSkinIds, func(id) { id == s.id })) {
+          case null { true }; // tidak ditemukan → available
+          case (?_) { false }; // ditemukan → berarti owned
+        };
+      },
+    );
+
+    // Owned = skin yang id-nya ADA di ownedSkinIds
+    let owned = Array.filter<Types.Skin>(
+      allSkins,
+      func(s) {
+        switch (Array.find<Nat>(ownedSkinIds, func(id) { id == s.id })) {
+          case null { false };
+          case (?_) { true };
+        };
+      },
+    );
+
+    {
+      available = available;
+      owned = owned;
+    };
   };
 
   public shared (msg) func buySkin(skin_id : Types.SkinId) : async Result.Result<(), Types.ShopError> {
@@ -295,9 +573,11 @@ persistent actor {
             let newItem : Types.InventoryItem = {
               id = next_inventory_id;
               skin_id = skin.id;
+              user_id = u.id;
               is_active = false;
               acquired_at = Time.now();
             };
+
             next_inventory_id += 1;
 
             inventories.put(caller, Array.append(inv, [newItem]));
@@ -315,33 +595,117 @@ persistent actor {
     };
   };
 
+  public shared (msg) func setActiveInventory(inventory_id : Types.InventoryId) : async Result.Result<(), Text> {
+    let caller = msg.caller;
+
+    // Ambil semua inventory milik user
+    let inv = switch (inventories.get(caller)) {
+      case null { return #err("User has no inventory") };
+      case (?items) { items };
+    };
+
+    // Cek apakah inventory_id valid & milik user
+    var found = false;
+    var newInv = Array.map<Types.InventoryItem, Types.InventoryItem>(
+      inv,
+      func(item) {
+        if (item.id == inventory_id) {
+          found := true;
+          if (item.is_active) {
+            // toggle ke false
+            { item with is_active = false };
+          } else {
+            // aktifkan item ini
+            { item with is_active = true };
+          };
+        } else {
+          // non-aktifkan semua lainnya
+          { item with is_active = false };
+        };
+      },
+    );
+
+    if (not found) {
+      return #err("Inventory item not found or not owned by caller");
+    };
+
+    inventories.put(caller, newInv);
+    #ok(());
+  };
+
   // ======================================
   // PROFILE
   // ======================================
-  private func getProfileUserInternal(caller : Principal) : ?Types.User {
-    users.get(caller);
+
+  private func calcLevel(exp : Nat) : Nat {
+    if (exp >= 5000) { return 5 };
+    if (exp >= 1500) { return 4 };
+    if (exp >= 500) { return 3 };
+    if (exp >= 200) { return 2 };
+    return 1; // default (awal)
   };
 
   public shared query (msg) func getProfileUser() : async ?UserProfileView {
     switch (users.get(msg.caller)) {
       case null { null };
       case (?u) {
+        regenerateStamina(u);
+
         let roles = Array.filter<Types.CurrentRole>(
           Iter.toArray(current_roles.vals()),
-          func(r) { r.user_id == u.id }
+          func(r) { r.user_id == u.id },
         );
-
         let roleViews = Array.map<Types.CurrentRole, CurrentRoleView>(roles, toCurrentRoleView);
 
+        let inv = switch (inventories.get(msg.caller)) {
+          case null { [] };
+          case (?items) { items };
+        };
+        let activeInvOpt = Array.find<Types.InventoryItem>(inv, func(item) { item.is_active });
+        let activeViewOpt = switch (activeInvOpt) {
+          case null { null };
+          case (?item) {
+            switch (skins.get(item.skin_id)) {
+              case null { null };
+              case (?skin) {
+                ?{
+                  id = item.id;
+                  skin_id = item.skin_id;
+                  user_id = u.id;
+                  is_active = item.is_active;
+                  acquired_at = item.acquired_at;
+                  skin_name = skin.name;
+                  skin_description = skin.description;
+                  skin_image_url = skin.image_url;
+                };
+              };
+            };
+          };
+        };
+
+        // 🔹 Filter hanya quest onProgress
+        let activeQuests : [QuestView] = Array.map<Types.Quest, QuestView>(
+          Array.filter<Types.Quest>(u.quests, func(q) { q.status == #OnProgress }),
+          toQuestView,
+        );
+
         ?{
-          user = toUserView(u);
+          user = {
+            id = u.id;
+            owner_principal = u.owner_principal;
+            username = u.username;
+            coin = u.coin;
+            stamina = u.stamina;
+            last_action_timestamp = u.last_action_timestamp;
+            skins = u.skins;
+            quests = activeQuests;
+          };
           roles = roleViews;
+          active_inventory = activeViewOpt;
         };
       };
     };
   };
-
-
 
   // ======================================
   // USER HELPERS
@@ -364,6 +728,20 @@ persistent actor {
     let caller = msg.caller;
     let ?user = users.get(caller) else return #err(#UserNotFound);
 
+    // ✅ Cek quest aktif, kalau ada → tolak
+    let hasActiveQuest = switch (
+      Array.find<Types.Quest>(
+        user.quests,
+        func(q) { q.status == #OnProgress },
+      )
+    ) {
+      case null false;
+      case (?_) true;
+    };
+    if (hasActiveQuest) {
+      return #err(#ActiveQuestExists);
+    };
+
     let role_id_to_toggle = roleSelectionToId(role_to_toggle);
 
     var found = false;
@@ -379,4 +757,95 @@ persistent actor {
 
     #ok(());
   };
+
+
+  // ======================================
+  // LEADERBOARD
+  // ======================================
+  public shared query (msg) func getLeaderboardAllUserByRole(
+    role_id : Types.RoleId
+  ) : async [Types.LeaderboardEntry] {
+    // 1. Ambil semua role dan filter berdasarkan role_id
+    let all_roles = Iter.toArray(current_roles.vals());
+    let filtered_roles = Array.filter<Types.CurrentRole>(
+      all_roles,
+      func(r) { r.role_id == role_id },
+    );
+
+    // 2. Urutkan role berdasarkan EXP secara descending
+    func compare(a : Types.CurrentRole, b : Types.CurrentRole) : Order.Order {
+      if (a.exp > b.exp) { return #less }; // a dulu
+      if (b.exp > a.exp) { return #greater }; // b dulu
+      return #equal;
+    };
+    let sorted_roles = Array.sort<Types.CurrentRole>(filtered_roles, compare);
+
+    // 3. Buat map user_id → user
+    let user_id_map = HashMap.HashMap<Types.UserId, Types.User>(
+      users.size(),
+      Nat.equal,
+      Hash.hash,
+    );
+    for ((_, u) in users.entries()) {
+      user_id_map.put(u.id, u);
+    };
+
+    // 4. Buffer hasil leaderboard
+    let result_buf = Buffer.Buffer<Types.LeaderboardEntry>(sorted_roles.size() + 1);
+
+    // 4a. Tambahkan caller di index [0]
+    switch (users.get(msg.caller)) {
+      case null {
+        // caller belum terdaftar → tidak ditambahkan
+      };
+      case (?callerUser) {
+        // cari role caller untuk role_id ini
+        let callerRoleOpt = Array.find<Types.CurrentRole>(
+          filtered_roles,
+          func(r) { r.user_id == callerUser.id },
+        );
+        switch (callerRoleOpt) {
+          case null {
+            // user belum punya role ini
+            result_buf.add({
+              user_id = callerUser.id;
+              username = callerUser.username;
+              level = 0;
+              exp = 0;
+            });
+          };
+          case (?callerRole) {
+            result_buf.add({
+              user_id = callerUser.id;
+              username = callerUser.username;
+              level = callerRole.level;
+              exp = callerRole.exp;
+            });
+          };
+        };
+      };
+    };
+
+    // 4b. Tambahkan semua entry leaderboard
+    var i : Nat = 0;
+    while (i < sorted_roles.size()) {
+      let role = sorted_roles[i];
+      switch (user_id_map.get(role.user_id)) {
+        case null {};
+        case (?user) {
+          result_buf.add({
+            user_id = user.id;
+            username = user.username;
+            level = role.level;
+            exp = role.exp;
+          });
+        };
+      };
+      i += 1;
+    };
+
+    // 5. Return array
+    return Buffer.toArray(result_buf);
+  };
+
 };
