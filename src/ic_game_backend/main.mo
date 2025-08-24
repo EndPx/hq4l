@@ -724,7 +724,7 @@ persistent actor {
     };
   };
 
-  public shared (msg) func chooseRole(role_to_toggle : Types.RoleSelection) : async Result.Result<(), Types.UserError> {
+  public shared (msg) func chooseRole(role_to_select : Types.RoleSelection) : async Result.Result<(), Types.UserError> {
     let caller = msg.caller;
     let ?user = users.get(caller) else return #err(#UserNotFound);
 
@@ -742,14 +742,18 @@ persistent actor {
       return #err(#ActiveQuestExists);
     };
 
-    let role_id_to_toggle = roleSelectionToId(role_to_toggle);
+    let role_id_to_select = roleSelectionToId(role_to_select);
 
     var found = false;
     for ((id, r) in current_roles.entries()) {
-      if (r.user_id == user.id and r.role_id == role_id_to_toggle) {
-        r.is_active := not r.is_active;
+      if (r.user_id == user.id) {
+        if (r.role_id == role_id_to_select) {
+          r.is_active := true;   // ✅ Role yang dipilih jadi aktif
+          found := true;
+        } else {
+          r.is_active := false;  // ✅ Role lain dipaksa nonaktif
+        };
         current_roles.put(id, r);
-        found := true;
       };
     };
 
@@ -757,6 +761,7 @@ persistent actor {
 
     #ok(());
   };
+
 
 
   // ======================================

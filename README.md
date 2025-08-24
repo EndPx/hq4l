@@ -1,59 +1,154 @@
-# `ic_game`
+# 🌱 Habits Quest 4 Life
 
-Welcome to your new `ic_game` project and to the Internet Computer development community. By default, creating a new project adds this README and some template files to your project directory. You can edit these template files to customize your project and to include your own code to speed up the development cycle.
+**Habits Quest 4 Life** is an application built on the **Internet Computer (IC)** that helps users build good habits through a system of **roles**, **quests**, **stamina**, **coins**, and **inventory**. It combines elements of **RPG gamification** with daily **self-improvement**.
 
-To get started, you might want to explore the project directory structure and the default configuration file. Working with this project in your development environment will not affect any production deployment or identity tokens.
+---
 
-To learn more before you start working with `ic_game`, see the following documentation available online:
+## 🚀 Key Features
 
-- [Quick Start](https://internetcomputer.org/docs/current/developer-docs/setup/deploy-locally)
-- [SDK Developer Tools](https://internetcomputer.org/docs/current/developer-docs/setup/install)
-- [Motoko Programming Language Guide](https://internetcomputer.org/docs/current/motoko/main/motoko)
-- [Motoko Language Quick Reference](https://internetcomputer.org/docs/current/motoko/main/language-manual)
+### 👤 User System
 
-If you want to start working on your project right away, you might want to try the following commands:
+- Unique user registration with a **username**.
+- Stores user data (coins, stamina, inventory, quests, roles).
+- **Automatic stamina regeneration** at set intervals.
 
-```bash
-cd ic_game/
-dfx help
-dfx canister --help
+### 🏅 Role System
+
+- Default roles:
+  - Codes
+  - Sports
+  - Arts
+  - Traveler
+  - Literature
+- Each role has its own level & EXP.
+- A user can only have **one active role** at a time and cannot switch roles while a quest is active.
+
+### 🗡 Quest System
+
+- Users can accept quests if they have **sufficient stamina**.
+- Quests include:
+  - Stamina cost
+  - Coin & EXP rewards
+  - Deadline (4 hours by default)
+- Quest statuses: `OnProgress`, `Completed`, `Failed`.
+- Quests automatically fail if the deadline is missed.
+- Successful quests award **coins** & **EXP** to the active role.
+
+### 🛍 Shop & Inventory
+
+- An admin can add **Skins** to the shop.
+- Users can purchase skins with coins.
+- Purchased skins are added to the user's **inventory**.
+- Users can set an **active skin**.
+
+### 📊 Leaderboard
+
+- **Role-based leaderboards** sorted by **EXP**.
+- A global leaderboard for coins.
+
+---
+
+## ⚙️ Technology
+
+- Language: [Motoko](https://internetcomputer.org/docs/current/developer-docs/build/cdks/motoko-dfinity)
+- SDK: [DFINITY SDK](https://internetcomputer.org/docs/current/developer-docs/getting-started/install/)
+- State Management: `HashMap`, `Buffer`, and stable variables.
+
+---
+
+## 📂 File Structure
+
+```
+├── src/
+│ ├── main.mo # Main actor implementation (system logic)
+│ ├── types.mo # Global type definitions
+│ └── ...
+├── README.md
 ```
 
-## Running the project locally
+---
 
-If you want to test your project locally, you can use the following commands:
+## 🔑 How to Run
+
+### 1. Clone the repository
 
 ```bash
-# Starts the replica, running in the background
-dfx start --background
+git clone [https://github.com/](https://github.com/)/habits-quest-4life.git
+cd habits-quest-4life
+```
 
-# Deploys your canisters to the replica and generates your candid interface
+### 2. Install the DFX SDK
+
+```bash
+sh -ci "$(curl -fsSL [https://internetcomputer.org/install.sh](https://internetcomputer.org/install.sh))"
+```
+
+### 3. Run Locally
+
+```bash
+dfx start --background
 dfx deploy
 ```
 
-Once the job completes, your application will be available at `http://localhost:4943?canisterId={asset_canister_id}`.
+### 4. Interact with the Canister
 
-If you have made changes to your backend canister, you can generate a new candid interface with
-
-```bash
-npm run generate
-```
-
-at any time. This is recommended before starting the frontend development server, and will be run automatically any time you run `dfx deploy`.
-
-If you are making frontend changes, you can start a development server with
+**Register a user**
 
 ```bash
-npm start
+dfx canister call habits_quest_4life registerUser '("Alice")'
 ```
 
-Which will start a server at `http://localhost:8080`, proxying API requests to the replica at port 4943.
+**View profile**
 
-### Note on frontend environment variables
+```bash
+dfx canister call habits_quest_4life getProfileUser
+```
 
-If you are hosting frontend code somewhere without using DFX, you may need to make one of the following adjustments to ensure your project does not fetch the root key in production:
+**Accept a quest**
 
-- set`DFX_NETWORK` to `ic` if you are using Webpack
-- use your own preferred method to replace `process.env.DFX_NETWORK` in the autogenerated declarations
-  - Setting `canisters -> {asset_canister_id} -> declarations -> env_override to a string` in `dfx.json` will replace `process.env.DFX_NETWORK` with the string in the autogenerated declarations
-- Write your own `createActor` constructor
+```bash
+dfx canister call habits_quest_4life acceptQuest '("Study for 30 mins", "Practice DApp coding", 5, 10, 20)'
+```
+
+**Complete a quest**
+
+```bash
+dfx canister call habits_quest_4life completeQuest '(0)'
+```
+
+**Buy a skin**
+
+```bash
+dfx canister call habits_quest_4life buySkin '(0)'
+```
+
+---
+
+## 🎮 User Flow (Game Guide)
+
+1.  **Register** → Create a unique username.
+2.  **Choose a role** → Activate one of your favorite roles.
+3.  **Accept a quest** → Requires stamina; quests have a 4-hour deadline.
+4.  **Complete a quest** → Earn coins + EXP, which levels up your role.
+5.  **Shop for skins** → Use your coins to buy items from the shop.
+6.  **Manage inventory** → Set your active skin.
+7.  **Follow the leaderboard** → Check your ranking by role or coins.
+
+---
+
+## 🔒 Admin Commands
+
+- `addSkin` → Adds a new item to the shop.
+- `grantCoinByUsername` → Gives coins to a specific user.
+
+---
+
+## 🌍 Vision
+
+This application is designed to turn everyday habits into an exciting adventure. With a system of roles, quests, and leaderboards, users can stay motivated to maintain consistency in their lives.
+
+---
+
+## 📜 License
+
+MIT License © 2025
